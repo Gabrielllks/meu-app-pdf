@@ -1,155 +1,106 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Notebook Lite Pro</title>
-    <link rel="manifest" href="manifest.json">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/minisearch@6.0.1/dist/umd/index.min.js"></script>
-    <style>
-        :root { --p: #2563eb; --bg: #f1f5f9; --card: #ffffff; }
-        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); margin: 0; display: flex; flex-direction: column; height: 100vh; color: #334155; }
+<input type="file" id="fileInput" accept="application/pdf" multiple style="font-size: 12px;">
+
+<script>
+    let pdfList = {}; // Armazena os objetos PDF por nome para visualização
+    let miniSearch = new MiniSearch({
+        fields: ['text'],
+        storeFields: ['text', 'page', 'fileName'], // Guardamos o nome do arquivo também
+        searchOptions: { fuzzy: 0.1, prefix: true }
+    });
+
+    document.getElementById('fileInput').onchange = async (e) => {
+        const files = e.target.files;
+        if (!files.length) return;
+
+        document.getElementById('status').innerText = `Processando ${files.length} arquivo(s)...`;
         
-        /* Layout Superior */
-        .header { background: white; padding: 15px; border-bottom: 1px solid #e2e8f0; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
-        .upload-section { padding: 10px; background: #fff; border-bottom: 1px solid #e2e8f0; }
-
-        /* Área de Busca Fixa */
-        .search-area { padding: 15px; background: white; sticky: top; z-index: 10; }
-        input[type="text"] { width: 100%; padding: 14px; border: 2px solid #e2e8f0; border-radius: 12px; font-size: 16px; outline: none; transition: border 0.3s; box-sizing: border-box; }
-        input[type="text"]:focus { border-color: var(--p); }
-
-        /* Resultados estilo Feed */
-        #results { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 15px; }
-        .card { background: var(--card); padding: 18px; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border: 1px solid #f1f5f9; line-height: 1.6; }
-        .meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 12px; font-weight: bold; color: var(--p); text-transform: uppercase; letter-spacing: 0.5px; }
-        .score-tag { background: #dbeafe; padding: 2px 8px; border-radius: 20px; }
+        for (let file of files) {
+            await processarArquivo(file);
+        }
         
-        /* Highlight da busca */
-        mark { background: #fef08a; color: #854d0e; padding: 0 2px; border-radius: 2px; }
-        
-        .loading-bar { height: 4px; width: 0%; background: var(--p); position: fixed; top: 0; left: 0; transition: width 0.3s; }
-    </style>
-</head>
-<body>
-    <div class="loading-bar" id="loader"></div>
-    
-    <div class="header">
-        <h2 style="margin:0; font-size: 1.2rem;">Notebook Offline Pro</h2>
-    </div>
+        document.getElementById('status').innerText = `${Object.keys(pdfList).length} arquivos indexados com sucesso!`;
+    };
 
-    <div class="upload-section">
-        <input type="file" id="fileInput" accept="application/pdf">
-        <div id="status" style="font-size: 12px; margin-top: 5px; color: #64748b;">Nenhum arquivo carregado.</div>
-    </div>
-
-    <div class="search-area">
-        <input type="text" id="searchInput" placeholder="O que você quer encontrar?" onkeyup="if(event.key==='Enter') buscar()">
-    </div>
-
-    <div id="results">
-        <div style="text-align: center; color: #94a3b8; margin-top: 50px;">
-            <p>Os resultados aparecerão aqui.</p>
-        </div>
-    </div>
-
-    <script>
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
-
-        let miniSearch = new MiniSearch({
-            fields: ['text'], 
-            storeFields: ['text', 'page'],
-            searchOptions: {
-                boost: { text: 2 },
-                fuzzy: 0.2, // Permite pequenos erros de digitação
-                prefix: true // Busca enquanto digita
-            },
-            tokenize: (string) => string.split(/[\s\-,.!?]+/) // Melhor tokenização para PT-BR
-        });
-
-        document.getElementById('fileInput').onchange = async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const loader = document.getElementById('loader');
-            document.getElementById('status').innerText = "Lendo documento...";
-            
+    async function processarArquivo(file) {
+        return new Promise((resolve) => {
             const reader = new FileReader();
             reader.onload = async function() {
                 const typedarray = new Uint8Array(this.result);
                 const pdf = await pdfjsLib.getDocument(typedarray).promise;
-                let docs = [];
+                
+                // Salva o PDF na lista global usando o nome do arquivo como chave
+                pdfList[file.name] = pdf;
 
+                let docs = [];
                 for (let i = 1; i <= pdf.numPages; i++) {
-                    loader.style.width = (i / pdf.numPages * 100) + "%";
                     const page = await pdf.getPage(i);
                     const textContent = await page.getTextContent();
-                    
-                    // Limpeza de texto: remove espaços duplos e cabeçalhos vazios
                     let rawText = textContent.items.map(s => s.str).join(' ');
-                    let cleanText = rawText.replace(/\s+/g, ' ').trim();
+                    
+                    // Divisão por parágrafos
+                    let paragraphs = rawText.split(/(?<=[.!?])\s+(?=[A-Z])/); 
 
-                    // Técnica de "Sliding Window": Divide a página em blocos menores para busca mais precisa
-                    if (cleanText.length > 50) {
-                        let chunks = cleanText.match(/.{1,600}(\s|$)/g); // Blocos de ~600 caracteres
-                        chunks.forEach((chunk, index) => {
-                            docs.push({ 
-                                id: `${i}-${index}`, 
-                                text: chunk, 
-                                page: i 
+                    paragraphs.forEach((p, idx) => {
+                        if (p.trim().length > 40) {
+                            docs.push({
+                                id: `${file.name}-${i}-${idx}`, // ID único incluindo nome do arquivo
+                                text: p.trim(),
+                                page: i,
+                                fileName: file.name
                             });
-                        });
-                    }
+                        }
+                    });
                 }
-
-                miniSearch.removeAll();
                 miniSearch.addAll(docs);
-                document.getElementById('status').innerText = `Sucesso! ${pdf.numPages} páginas indexadas.`;
-                loader.style.width = "0%";
+                resolve();
             };
             reader.readAsArrayBuffer(file);
-        };
+        });
+    }
 
-        function buscar() {
-            const query = document.getElementById('searchInput').value;
-            if (query.length < 2) return;
+    // Ajuste na função de busca para mostrar de qual arquivo veio o trecho
+    function buscar() {
+        const query = document.getElementById('searchInput').value;
+        const results = miniSearch.search(query);
+        const container = document.getElementById('results');
+        container.innerHTML = "";
 
-            const results = miniSearch.search(query);
-            const container = document.getElementById('results');
-            container.innerHTML = "";
-
-            if (results.length === 0) {
-                container.innerHTML = "<p style='text-align:center'>Não encontramos trechos exatos.</p>";
-                return;
-            }
-
-            results.slice(0, 8).forEach(res => {
-                // Cria um highlight simples no texto
-                const highlightedText = highlight(res.text, query);
-                
-                const div = document.createElement('div');
-                div.className = 'card';
-                div.innerHTML = `
-                    <div class="meta">
-                        <span>Página ${res.page}</span>
-                        <span class="score-tag">Relevância: ${Math.round(res.score)}</span>
-                    </div>
-                    <div>${highlightedText}</div>
-                `;
-                container.appendChild(div);
-            });
+        if (results.length === 0) {
+            container.innerHTML = "<p style='text-align:center'>Nenhum trecho encontrado.</p>";
+            return;
         }
 
-        function highlight(text, query) {
-            const words = query.split(' ').filter(w => w.length > 2);
-            let highlighted = text;
-            words.forEach(word => {
-                const reg = new RegExp(`(${word})`, 'gi');
-                highlighted = highlighted.replace(reg, '<mark>$1</mark>');
-            });
-            return highlighted;
-        }
-    </script>
-</body>
-</html>
+        results.slice(0, 15).forEach(res => {
+            const div = document.createElement('div');
+            div.className = 'source-card';
+            // Agora passamos o nome do arquivo e a página para o visualizador
+            div.onclick = () => verNoPdf(res.fileName, res.page); 
+            
+            div.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span class="page-badge">Página ${res.page}</span>
+                    <span style="font-size: 10px; color: #70757a; font-weight: bold;">📄 ${res.fileName}</span>
+                </div>
+                <div class="text-content">${highlight(res.text, query)}</div>
+            `;
+            container.appendChild(div);
+        });
+    }
+
+    // Ajuste no visualizador para pegar o PDF correto da lista
+    async function verNoPdf(fileName, pageNum) {
+        const pdf = pdfList[fileName];
+        if (!pdf) return;
+        
+        document.getElementById('pdfModal').style.display = 'flex';
+        const page = await pdf.getPage(pageNum);
+        const canvas = document.getElementById('pdfCanvas');
+        const context = canvas.getContext('2d');
+        
+        const viewport = page.getViewport({ scale: 1.5 });
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+
+        page.render({ canvasContext: context, viewport: viewport });
+    }
+</script>

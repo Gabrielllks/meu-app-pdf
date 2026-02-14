@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocIndex Offline</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/minisearch@6.0.1/dist/umd/index.min.js"></script>
+    <style>
+        :root { --primary: #2563eb; --bg: #f8fafc; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #1e293b; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .header { text-align: center; margin-bottom: 20px; }
+        .card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 15px; border-left: 4px solid var(--primary); }
+        input[type="file"], input[type="text"] { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #cbd5e1; border-radius: 8px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; }
+        .page-num { font-size: 0.8rem; font-weight: bold; color: var(--primary); text-transform: uppercase; }
+        #status { font-size: 0.9rem; color: #64748b; text-align: center; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Notebook Lite</h1>
+            <p>Indexação 100% Local</p>
+        </div>
+        
+        <input type="file" id="fileInput" accept="application/pdf">
+        <div id="status">Selecione um PDF para começar</div>
+        
+        <hr style="border: 0.5px solid #e2e8f0; margin: 20px 0;">
+        
+        <input type="text" id="searchInput" placeholder="Digite sua dúvida...">
+        <button onclick="buscar()">Pesquisar no Documento</button>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+
+        let miniSearch = new MiniSearch({
+            fields: ['text'],
+            storeFields: ['text', 'page'],
+            searchOptions: { fuzzy: 0.2, prefix: true }
+        });
+
+        document.getElementById('fileInput').onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            document.getElementById('status').innerText = "Processando PDF... aguarde.";
+            const reader = new FileReader();
+
+            reader.onload = async function() {
+                const typedarray = new Uint8Array(this.result);
+                const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                let docs = [];
+
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const text = textContent.items.map(s => s.str).join(' ');
+                    
+                    // Criamos um ID único combinando página e fragmento
+                    docs.push({ id: i, text: text, page: i });
+                }
+
+                miniSearch.removeAll();
+                miniSearch.addAll(docs);
+                document.getElementById('status').innerText = "Concluído! " + pdf.numPages + " páginas indexadas.";
+            };
+            reader.readAsArrayBuffer(file);
+        };
+
+        function buscar() {
+            const query = document.getElementById('searchInput').value;
+            const results = miniSearch.search(query);
+            const container = document.getElementById('results');
+            container.innerHTML = "";
+
+            if (results.length === 0) {
+                container.innerHTML = "<p style='text-align:center'>Nenhum trecho encontrado.</p>";
+                return;
+            }
+
+            results.slice(0, 5).forEach(res => {
+                const div = document.createElement('div');
+                div.className = 'card';
+                div.innerHTML = `
+                    <div class="page-num">Página ${res.page}</div>
+                    <p>${res.text.substring(0, 600)}...</p>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        // Registrar o Service Worker para funcionar Offline
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js');
+        }
+    </script>
+</body>
+</html>
